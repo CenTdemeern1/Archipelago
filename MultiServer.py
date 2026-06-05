@@ -453,7 +453,7 @@ class Context:
             self.endpoints.remove(endpoint)
         if endpoint.slot and endpoint in self.clients[endpoint.team][endpoint.slot]:
             self.clients[endpoint.team][endpoint.slot].remove(endpoint)
-        if endpoint in self.team_trackers[endpoint.team]:
+        if endpoint.team and endpoint in self.team_trackers[endpoint.team]:
             self.team_trackers[endpoint.team].remove(endpoint)
         await on_client_disconnected(self, endpoint)
 
@@ -2002,10 +2002,10 @@ async def process_client_cmd(ctx: Context, client: Client, args: dict):
                     client.no_text = "NoText" in client.tags or (
                         "PopTracker" in client.tags and client.version < (0, 5, 1)
                     )
-                    if "TeamTracker" in client.tags and client not in ctx.team_trackers[team]:
-                        ctx.team_trackers[team].append(client)
-                    if "TeamTracker" not in client.tags and client in ctx.team_trackers[team]:
-                        ctx.team_trackers[team].remove(client)
+                    if "TeamTracker" in client.tags and client not in ctx.team_trackers[client.team]:
+                        ctx.team_trackers[client.team].append(client)
+                    if "TeamTracker" not in client.tags and client in ctx.team_trackers[client.team]:
+                        ctx.team_trackers[client.team].remove(client)
                     ctx.broadcast_text_all(
                         f"{ctx.get_aliased_name(client.team, client.slot)} (Team #{client.team + 1}) has changed tags "
                         f"from {old_tags} to {client.tags}.",
