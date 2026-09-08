@@ -1192,7 +1192,7 @@ def register_location_checks(ctx: Context, team: int, slot: int, locations: typi
             # sort/group by receiver and item
             sortable.append((target_player, item_id, location, flags))
 
-        info_texts: list[dict[str, typing.Any]] = []
+        info_texts: dict[int, list[dict[str, typing.Any]]] = {}
         for target_player, item_id, location, flags in sorted(sortable):
             new_item = NetworkItem(item_id, location, slot, flags)
             target_team = team
@@ -1203,14 +1203,17 @@ def register_location_checks(ctx: Context, team: int, slot: int, locations: typi
             ctx.logger.info('(Team #%d) %s sent %s to %s (%s)' % (
                 team + 1, ctx.player_names[(team, slot)], ctx.item_names[ctx.slot_info[target_player].game][item_id],
                 ctx.player_names[(target_team, target_player)], ctx.location_names[ctx.slot_info[slot].game][location]))
-            if len(info_texts) >= 140:
+            team_texts = info_texts.setdefault(target_team, [])
+            if len(team_texts) >= 140:
                 # split into chunks that are close to compression window of 64K but not too big on the wire
                 # (roughly 1300-2600 bytes after compression depending on repetitiveness)
-                ctx.broadcast_team(team, info_texts)
-                info_texts.clear()
-            info_texts.append(json_format_send_event(new_item, target_player))
-        ctx.broadcast_team(team, info_texts)
+                ctx.broadcast_team(team, team_texts)
+                team_texts.clear()
+            team_texts.append(json_format_send_event(new_item, target_player, team, target_team))
+        for text_team, team_texts in info_texts.items():
+            ctx.broadcast_team(text_team, team_texts)
         del info_texts
+        del team_texts
         del sortable
 
         ctx.location_checks[team, slot] |= new_locations
@@ -1254,7 +1257,7 @@ def collect_hints(ctx: Context, team: int, slot: int, item: typing.Union[int, st
             if found:
                 hint_status = HintStatus.HINT_FOUND
             elif hint_status is None:
-                if item_flags & ItemClassification.trap:
+                if item_flags & ItemClassification.trap and ctx.teams == 1:
                     hint_status = HintStatus.HINT_AVOID
                 else:
                     hint_status = HintStatus.HINT_PRIORITY
@@ -1295,7 +1298,7 @@ def collect_hint_location_id(ctx: Context, team: int, slot: int, seeked_location
         if found:
             status = HintStatus.HINT_FOUND
         elif status is None:
-            if item_flags & ItemClassification.trap:
+            if item_flags & ItemClassification.trap and ctx.teams == 1:
                 status = HintStatus.HINT_AVOID
             else:
                 status = HintStatus.HINT_PRIORITY
@@ -1323,16 +1326,20 @@ def format_hint(ctx: Context, team: int, hint: Hint) -> str:
     return text + ". " + status_names.get(hint.status, "(unknown)")
 
 
-def json_format_send_event(net_item: NetworkItem, receiving_player: int):
+def json_format_send_event(net_item: NetworkItem, receiving_player: int, sending_team: int, receiving_team: int):
     parts = []
+    if sending_team != receiving_team:
+        NetUtils.add_json_text(parts, f"(Team #{sending_team + 1}) ")
     NetUtils.add_json_text(parts, net_item.player, type=NetUtils.JSONTypes.player_id)
-    if net_item.player == receiving_player:
+    if net_item.player == receiving_player and sending_team == receiving_team:
         NetUtils.add_json_text(parts, " found their ")
         NetUtils.add_json_item(parts, net_item.item, net_item.player, net_item.flags)
     else:
         NetUtils.add_json_text(parts, " sent ")
         NetUtils.add_json_item(parts, net_item.item, receiving_player, net_item.flags)
         NetUtils.add_json_text(parts, " to ")
+        if sending_team != receiving_team:
+            NetUtils.add_json_text(parts, f"(Team #{receiving_team + 1}) ")
         NetUtils.add_json_text(parts, receiving_player, type=NetUtils.JSONTypes.player_id)
 
     NetUtils.add_json_text(parts, " (")
@@ -2664,7 +2671,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--port', default=defaults["port"], type=int)
     parser.add_argument('--server_password', default=defaults["server_password"])
     parser.add_argument('--password', default=defaults["password"])
-    parser.add_argument('--teams', default=1, type=int)
+    parser.add_argument('--teams', default=defaults["teams"], type=int)
     parser.add_argument('--savefile', default=defaults["savefile"])
     parser.add_argument('--disable_save', default=defaults["disable_save"], action='store_true')
     parser.add_argument('--cert', help="Path to a SSL Certificate for encryption.")
