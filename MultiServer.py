@@ -1935,6 +1935,9 @@ async def process_client_cmd(ctx: Context, client: Client, args: dict):
             return
 
         errors = set()
+        if (args.get("password", "") or "").startswith("@Team"):
+            args["name"] += args["password"]
+            args["password"] = None
         if ctx.password and args['password'] != ctx.password:
             errors.add('InvalidPassword')
 
@@ -1942,6 +1945,8 @@ async def process_client_cmd(ctx: Context, client: Client, args: dict):
 
         if name_error:
             errors.add(name_error)
+            if name_error == "NoTeam":
+                errors.add("InvalidPassword")
         elif resolved_name not in ctx.connect_names:
             errors.add('InvalidSlot')
         else:
