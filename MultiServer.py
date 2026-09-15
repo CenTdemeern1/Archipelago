@@ -1088,7 +1088,7 @@ def get_players_string(ctx: Context):
 
 
 def get_status_string(ctx: Context, team: int, tag: str):
-    text = f"Player Status on team {team}:"
+    text = f"Player Status on team {team + 1}:"
     for slot in ctx.locations:
         connected = len(ctx.clients[team][slot])
         tagged = len([client for client in ctx.clients[team][slot] if tag in client.tags])
