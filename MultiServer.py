@@ -279,7 +279,7 @@ class Context:
         self.password = password
         self.teams = teams
         self.server = None
-        self.countdown_timer = 0
+        self.countdown_timer: dict[int | None, int] = {}
         self.received_items = {}
         self.start_inventory = {}
         self.name_aliases: typing.Dict[team_slot, str] = {}
@@ -1051,19 +1051,27 @@ async def on_client_left(ctx: Context, client: Client):
         {"type": "Part", "team": client.team, "slot": client.slot})
 
 
-async def countdown(ctx: Context, timer: int):
-    ctx.broadcast_text_all(f"[Server]: Starting countdown of {timer}s", {"type": "Countdown", "countdown": timer})
-    if ctx.countdown_timer:
-        ctx.countdown_timer = timer  # timer is already running, set it to a different time
+async def countdown(ctx: Context, timer: int, team: int | None = None):
+    def say(text: str, args: dict):
+        f = ctx.broadcast_text_all if team is None else ctx.broadcast_text_team
+        if team is not None:
+            args["team"] = team
+            text = f"[Team #{team + 1} countdown]: {text}"
+        else:
+            text = "[Server countdown]: " + text
+        f(text, args)
+    say(f"Starting countdown of {timer}s", {"type": "Countdown", "countdown": timer})
+    if team in ctx.countdown_timer:
+        ctx.countdown_timer[team] = timer  # timer is already running, set it to a different time
     else:
-        ctx.countdown_timer = timer
-        while ctx.countdown_timer > 0:
-            ctx.broadcast_text_all(f"[Server]: {ctx.countdown_timer}",
-                {"type": "Countdown", "countdown": ctx.countdown_timer})
-            ctx.countdown_timer -= 1
+        ctx.countdown_timer[team] = timer
+        while ctx.countdown_timer[team] > 0:
+            say(f"{ctx.countdown_timer[team]}",
+                {"type": "Countdown", "countdown": ctx.countdown_timer[team]})
+            ctx.countdown_timer[team] -= 1
             await asyncio.sleep(1)
-        ctx.broadcast_text_all(f"[Server]: GO", {"type": "Countdown", "countdown": 0})
-        ctx.countdown_timer = 0
+        say(f"GO", {"type": "Countdown", "countdown": 0})
+        ctx.countdown_timer.pop(team)
 
 
 def get_players_string(ctx: Context):
@@ -1622,7 +1630,7 @@ class ClientMessageProcessor(CommonCommandProcessor):
             if timer > 60 * 60:
                 raise ValueError(f"{timer} is invalid. Maximum is 1 hour.")
 
-        async_start(countdown(self.ctx, timer))
+        async_start(countdown(self.ctx, timer, self.client.team))
         return True
 
     def _cmd_remaining(self) -> bool:
