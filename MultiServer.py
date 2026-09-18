@@ -156,6 +156,7 @@ class Client(Endpoint):
         "no_items",
         "no_locations",
         "no_text",
+        "force_team_chat",
     )
 
     version: Version
@@ -171,6 +172,7 @@ class Client(Endpoint):
     no_items: bool
     no_locations: bool
     no_text: bool
+    force_team_chat: bool | None
 
     def __init__(self, socket: "ServerConnection", ctx: Context) -> None:
         super().__init__(socket)
@@ -187,6 +189,7 @@ class Client(Endpoint):
         self.no_items = False
         self.no_locations = False
         self.no_text = False
+        self.force_team_chat = None
 
     @property
     def items_handling(self):
@@ -1487,16 +1490,19 @@ class ClientMessageProcessor(CommonCommandProcessor):
         self.client = client
 
     def __call__(self, raw: str, team: int | None = None) -> typing.Optional[bool]:
-        if not raw.startswith("!admin"):
-            message = self.ctx.get_aliased_name(self.client.team, self.client.slot) + \
-                      ('' if self.ctx.teams == 1 else f" (Team #{self.client.team + 1})") + ': ' + raw
-
-            args = {"type": "Chat", "team": self.client.team, "slot": self.client.slot, "message": raw}
-            if team is not None:
-                self.ctx.broadcast_text_team(message, args, True)
-            else:
-                self.ctx.broadcast_text_all(message, args, True)
+        if not (raw.startswith("!admin") or raw.startswith("!team") or raw.startswith("!all")):
+            self.say(raw, self.client.force_team_chat if self.client.force_team_chat is not None else team is not None)
         return super(ClientMessageProcessor, self).__call__(raw)
+
+    def say(self, raw: str, to_team: bool):
+        message = self.ctx.get_aliased_name(self.client.team, self.client.slot) + \
+                    ('' if self.ctx.teams == 1 else f" (Team #{self.client.team + 1})") + ': ' + raw
+
+        args = {"type": "Chat", "team": self.client.team, "slot": self.client.slot, "message": raw}
+        if to_team:
+            self.ctx.broadcast_text_team(message, args, True)
+        else:
+            self.ctx.broadcast_text_all(message, args, True)
 
     def output(self, text: str):
         self.ctx.notify_client(self.client, text, {"type": "CommandResult"})
@@ -1509,6 +1515,32 @@ class ClientMessageProcessor(CommonCommandProcessor):
 
     def is_authenticated(self):
         return self.ctx.commandprocessor.client == self.client
+
+    @mark_raw
+    def _cmd_all(self, message: str | None = None):
+        """Switches to sending messages to everyone instead of just your team,
+        or sends a single message to everyone if the command is followed by a message.
+        Usage:
+        "!all" to switch to all-chat
+        "!all <message>" to send a single message to all-chat"""
+        if message is None:
+            self.client.force_team_chat = False
+            self.output("Sending this client's messages to all players.")
+        else:
+            self.say(message, False)
+
+    @mark_raw
+    def _cmd_team(self, message: str | None = None):
+        """Switches to sending messages to team-chat,
+        or sends a single message to team-chat if the command is followed by a message.
+        Usage:
+        "!team" to switch to team-chat
+        "!team <message>" to send a single message to team-chat"""
+        if message is None:
+            self.client.force_team_chat = True
+            self.output("Sending this client's messages to team.")
+        else:
+            self.say(message, True)
 
     @mark_raw
     def _cmd_admin(self, command: str = ""):
